@@ -110,19 +110,6 @@ def create_exposure_array(df, split_dfs,cell_size):
     numpy.ndarray: A 2D array with the log-transformed sum of median LTE mW total values for each cell.
     rasterio.transform.Affine: The affine transform for the generated raster grid.
 
-    Steps:
-    1. Define data bounds and grid size.
-    2. Calculate the number of cells in x and y directions.
-    3. Adjust bounds to ensure they are multiples of cell_size.
-    4. Create the raster grid with x and y edges.
-    5. Initialize a sum array to accumulate values from different network providers.
-    6. For each network provider DataFrame, calculate the median LTE mW total for each cell.
-    7. Add the median values to the sum array.
-    8. Convert zero values back to NaN.
-    9. Apply a log transformation to the sum array.
-    10. Rotate the array by 90 degrees.
-    11. Create a transform for the raster grid.
-
     Notes:
     - The function ensures that zero values are converted to NaN for the final output.
     """
