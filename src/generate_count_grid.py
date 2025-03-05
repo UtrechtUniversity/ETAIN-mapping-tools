@@ -22,7 +22,7 @@ conn = psycopg2.connect(**db_params)
 
 #GRID FETCH
 print('fetching grid from database')
-grid_query = "SELECT fid, geom FROM spatial_help.nlch_hexgrid_500m"
+grid_query = "SELECT fid, geom FROM spatial_help.nlch_hexgrid_250m"
 grid_gdf = gpd.GeoDataFrame.from_postgis(grid_query, conn, geom_col='geom') 
 
 #CLIP FETCH
@@ -81,7 +81,7 @@ connection_string = f"postgresql+psycopg2://{db_params['user']}:{encoded_passwor
 engine = create_engine(connection_string)
 
 #upload to postgis database
-result_counts.to_postgis('nlch_hexgrid_500m_with_counts', engine, schema='maps', if_exists='replace')
+result_counts.to_postgis('nlch_hexgrid_250m_with_counts', engine, schema='maps', if_exists='replace')
 conn.close()
 
 print("Script completed successfully.")
