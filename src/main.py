@@ -1,9 +1,11 @@
 import pandas as pd
 import helper_functions as hf
+import csv
+import subprocess
+import glob
+import os
 from datetime import date
 from datetime import datetime
-import os
-
 
 starttime = datetime.now()
 today = date.today().strftime("%d%m%Y")
@@ -11,25 +13,30 @@ today = date.today().strftime("%d%m%Y")
 
 countries = ['AD','AL','AT','BA',       ###SKIPPING FOR NOW: 
              'BE','BG','CH','CY',       
-             'CZ','DE','DK','EE','EL',  ###'FI','NO','SE','UK': BORDER TOO COMPLEX ADD THESE BACK AFTER GEOM FIX
-             'ES','FR','GG',            
-             'HR','HU','IE','IM',       ###'RU','GE','AZ','TR','BY','GI': NOT EU
+             'CZ','DE','DK','EE','EL',  ###'RU','GE','AZ','TR','BY','GI': NOT EU
+             'ES','FI','FR','GG',            
+             'HR','HU','IE','IM',       
              'IS','IT','JE','LI','LT',
              'LU','LV','MC','MD','ME',
-             'MK','MT','NL','PL',
-             'PT','RO','RS',
-             'SI','SK','SM','UA',
+             'MK','MT','NL','NO','PL',
+             'PT','RO','RS','SE',
+             'SI','SK','SM','UK','UA',
              'VA','XK']
-len(countries)
+
+
+output_folder = f"C:/scripts/ETAIN_mapping_tools/data/private/output/rsrp/{today}" 
+os.makedirs(output_folder, exist_ok=True)
 cell_size_output = 25
 saved_rasters = []
+meas_per_country = {}
 count = 0
+
 for country in countries:
     count+=1
     print(f'processing {country}, {count} / {len(countries)}')
-    output_name = f'LTE_RSSI_{country}_{today}'
-    csv_output_path = f"C:/scripts/ETAIN_mapping_tools/data/private/output/{output_name}.csv"
-    tif_output_path = f"C:/scripts/ETAIN_mapping_tools/data/private/output/{output_name}.tif"
+    output_name = f'LTE_RSRP_{country}_{today}'
+    csv_output_path = f"{output_folder}/{output_name}.csv"
+    tif_output_path = f"{output_folder}/{output_name}.tif"
 
 
     #reading input from database
@@ -38,8 +45,12 @@ for country in countries:
     if len(df) == 0:
         print(f'Skipped {country}, no measurements found')
         continue
-    #filtering and converting
-    df_mw = hf.convert_dBw_to_mW(df, copy_columns=True, save_csv=csv_output_path) #convert dBm to mW
+    else:
+        meas_per_country[country] = len(df)
+
+    df = hf.add_frequency_colums(df)   #add frequency column calculated from earfcn
+    df = hf.normalize_rsrp(df) #calculate normalized rsrp based on frequency columns
+    df_mw = hf.convert_dBw_to_mW(df, copy_columns=True, save_csv=False) #convert dBm to mW
 
     #splitting dataframes by networkprovider
     split_dfs = hf.split_dataframes(df_mw)
@@ -48,28 +59,27 @@ for country in countries:
     exposure_array,count_array,transform = hf.create_exposure_array(df_mw, split_dfs, cell_size_output)
 
     #use map calibration formula
-    calibrated_array = hf.map_calibration(exposure_array,calibration_method='rssi_temp')
+    calibrated_array = hf.map_calibration(exposure_array,calibration_method='LTE_rsrp')
 
     hf.save_raster(tif_output_path,calibrated_array,transform,source_crs='EPSG:3035', target_crs='EPSG:3035')
     saved_rasters.append(tif_output_path)
 
     #hf.save_raster(f'{tif_output_path[:-4]}_count.tif',count_array,transform) ##FOR RASTER COUNTER
 
-import importlib
-importlib.reload(hf)
-starttime = datetime.now()
-today = date.today().strftime("%d%m%Y")
-if True:
-    saved_rasters = []
-    folder = "C:/scripts/ETAIN_mapping_tools/data/private/output"
-    for file_name in os.listdir(folder):
-        if file_name.endswith('.tif'):
-            print(file_name)
-            file_path = os.path.join(folder,file_name)
-            saved_rasters.append(file_path)
+#write amount of measurements per country csv
+with open(f'{output_folder}/measurements_percountry.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    # Writing header
+    writer.writerow(['Key', 'Value'])
+    # Writing data
+    for key, value in meas_per_country.items():
+        writer.writerow([key, value])
 
-    
-merged_output = f"C:/scripts/ETAIN_mapping_tools/data/private/output/LTE_RSSI_EU_{today}.tif"
-hf.merge_rasters(saved_rasters,merged_output)
+#create mosaic shp with gdal subprocess
+tif_files = glob.glob(f"{output_folder}/*.tif")
+command = ["gdaltindex", f"{output_folder}/mosaic.shp"] + tif_files
+result = subprocess.run(command, capture_output=True, text=True)
 
-print(f'Done, time taken:{datetime.now()-starttime}')
+ 
+
+
