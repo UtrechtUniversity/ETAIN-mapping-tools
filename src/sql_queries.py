@@ -1,20 +1,20 @@
-def country_data(country_code):
+def country_data(country_code,ssi):
     query = f"""
 WITH geom_points AS (
     SELECT 
         md."appId",
         md.ts,
         md."DIRECT_connection_mcc_mnc",
-        md."LTE_0_rsrp",
-        md."LTE_1_rsrp",
-        md."LTE_2_rsrp",
-        md."LTE_3_rsrp",
-        md."LTE_4_rsrp",
-        md."LTE_5_rsrp",
-        md."LTE_6_rsrp",
-        md."LTE_7_rsrp",
-        md."LTE_8_rsrp",
-        md."LTE_9_rsrp",
+        md."LTE_0_{ssi}",
+        md."LTE_1_{ssi}",
+        md."LTE_2_{ssi}",
+        md."LTE_3_{ssi}",
+        md."LTE_4_{ssi}",
+        md."LTE_5_{ssi}",
+        md."LTE_6_{ssi}",
+        md."LTE_7_{ssi}",
+        md."LTE_8_{ssi}",
+        md."LTE_9_{ssi}",
         md."LTE_0_earfcn",
         md."LTE_1_earfcn",
         md."LTE_2_earfcn",
@@ -29,7 +29,7 @@ WITH geom_points AS (
     FROM 
         appdata.measurementdata md
     WHERE 
-        md."LTE_0_rsrp" IS NOT NULL
+        md."LTE_0_{ssi}" IS NOT NULL
 )
 
 SELECT 
@@ -38,16 +38,16 @@ SELECT
     ST_X(ST_Transform(gp.geom, 3035)) AS x,
     ST_Y(ST_Transform(gp.geom, 3035)) AS y,
     gp."DIRECT_connection_mcc_mnc",
-    gp."LTE_0_rsrp",
-    gp."LTE_1_rsrp",
-    gp."LTE_2_rsrp",
-    gp."LTE_3_rsrp",
-    gp."LTE_4_rsrp",
-    gp."LTE_5_rsrp",
-    gp."LTE_6_rsrp",
-    gp."LTE_7_rsrp",
-    gp."LTE_8_rsrp",
-    gp."LTE_9_rsrp",
+    gp."LTE_0_{ssi}",
+    gp."LTE_1_{ssi}",
+    gp."LTE_2_{ssi}",
+    gp."LTE_3_{ssi}",
+    gp."LTE_4_{ssi}",
+    gp."LTE_5_{ssi}",
+    gp."LTE_6_{ssi}",
+    gp."LTE_7_{ssi}",
+    gp."LTE_8_{ssi}",
+    gp."LTE_9_{ssi}",
     gp."LTE_0_earfcn",
     gp."LTE_1_earfcn",
     gp."LTE_2_earfcn",
@@ -71,3 +71,12 @@ WHERE
     eb.nuts = '{country_code}'::text;
     """
     return(query)
+
+def fetch_metadata():
+    query = '''
+    SELECT 
+    COUNT(*) AS total_rows, 
+    COUNT(DISTINCT "appId") AS unique_appIds
+    FROM appdata.measurementdata
+    '''
+    return query

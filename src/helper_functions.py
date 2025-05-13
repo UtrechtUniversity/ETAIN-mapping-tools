@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from datetime import datetime
 from osgeo import gdal
 import os
+import glob
 
 import db_secrets
 import sql_queries
@@ -39,7 +40,7 @@ def _postgres_connect():
     engine = create_engine(db_uri)
     return engine
 
-def fetch_country_data(country_code):
+def fetch_country_data(country_code,ssi):
     """
     Fetch measurement data for a specified country from the database.
     Constructs a SQL query based on the country code in the database.
@@ -51,22 +52,22 @@ def fetch_country_data(country_code):
     Returns:
         pandas.DataFrame: A DataFrame containing the measurement data 
         for the specified country, with columns for appId, timestamps,
-        and various LTE rsrp values. Geometry is already constructed
+        and various LTE ssi values. Geometry is already constructed
         in the "geom" column
     """
     print(f'Fetching data for {country_code}...')
-    query = sql_queries.country_data(country_code)
+    query = sql_queries.country_data(country_code,ssi)
     df = pd.read_sql(query, _postgres_connect())
     return df
 
-def convert_dBw_to_mW(df,column_list=None,copy_columns=False,save_csv=False):
+def convert_dBw_to_mW(df,ssi, column_list=None,copy_columns=False,save_csv=False, ):
     """
     Function to convert dBw to mW and sum all LTE cells together
     """
     print('Converting dBw to mW...')
     if column_list == None:
-        column_list=['LTE_0_rsrp','LTE_1_rsrp','LTE_2_rsrp','LTE_3_rsrp','LTE_4_rsrp',
-                    'LTE_5_rsrp','LTE_6_rsrp','LTE_7_rsrp','LTE_8_rsrp','LTE_9_rsrp']
+        column_list=[f'LTE_0_{ssi}',f'LTE_1_{ssi}',f'LTE_2_{ssi}',f'LTE_3_{ssi}',f'LTE_4_{ssi}',
+                    f'LTE_5_{ssi}',f'LTE_6_{ssi}',f'LTE_7_{ssi}',f'LTE_8_{ssi}',f'LTE_9_{ssi}']
     if copy_columns == True:
         for col in column_list:
             df[f"{col}_dBw"] = df[col].copy()
@@ -176,8 +177,8 @@ def create_exposure_array(df, split_dfs,cell_size):
 
 def map_calibration(exposure_array,calibration_method):
     print('Applying map calibration function...')
-    if calibration_method == 'rssi_temp':
-        calibrated_array = 183.25 + (1.10 * exposure_array) 
+    if calibration_method == 'LTE_rssi':
+        calibrated_array = 166.21712 + (0.83513 * exposure_array) 
         calibrated_array = 10 ** ((calibrated_array- 120) / 20)
     elif calibration_method == 'LTE_rsrp':
         calibrated_array = 168.31746 + (0.75799 * exposure_array) #apply map calibration
@@ -186,6 +187,7 @@ def map_calibration(exposure_array,calibration_method):
 
 def save_raster(output_raster_path, array, transform, source_crs='EPSG:3035',target_crs='EPSG:3035'):
     print('Saving raster...')
+
     #calculate the bounds from the transform
     height, width = array.shape
     left = transform.c
@@ -208,10 +210,10 @@ def save_raster(output_raster_path, array, transform, source_crs='EPSG:3035',tar
         dst_crs=target_crs,
         resampling=Resampling.nearest
     )
+    reprojected_array[reprojected_array == 0] = np.nan #replace all zeros with nans in the array
     
-    #valid data check
-    if np.all(reprojected_array == 0):
-        print("Warning: Reprojected array contains only zeros. Check source CRS and transformation.")
+    if np.all(reprojected_array == 0) or np.all(np.isnan(reprojected_array)):
+        print("Warning: Reprojected array contains only zeros or nans. Check source CRS and transformation.")
     
     #write reprojected data
     with rio.open(
@@ -226,11 +228,14 @@ def save_raster(output_raster_path, array, transform, source_crs='EPSG:3035',tar
         nodata=np.nan
     ) as dst:
         dst.write(reprojected_array, 1)
-        dst.update_tags(1, 
-                        STATISTICS_MAXIMUM=reprojected_array.max(), 
-                        STATISTICS_MINIMUM=reprojected_array.min(), 
-                        STATISTICS_MEAN=reprojected_array.mean(), 
-                        STATISTICS_STDDEV=reprojected_array.std())
+    # Compute statistics, ignoring NaN
+        valid_data = reprojected_array[~np.isnan(reprojected_array)]  # Ignore NaN
+        if valid_data.size > 0:  # Only update tags if valid data exists
+            dst.update_tags(1,
+                        STATISTICS_MAXIMUM=valid_data.max(),
+                        STATISTICS_MINIMUM=valid_data.min(),
+                        STATISTICS_MEAN=valid_data.mean(),
+                        STATISTICS_STDDEV=valid_data.std())
     
     print(f"Raster file saved in {target_crs}")
 
@@ -257,7 +262,7 @@ def add_frequency_colums(measurement_df):
             earfcn_to_freq[int(low_earfcn)] = low_freq
 
 
-    for i in range(10):  # Assuming you have LTE_0 to LTE_9
+    for i in range(10):  #assuming LTE_0 to LTE_9
         earfcn_col = f'LTE_{i}_earfcn'
         freq_col = f'LTE_{i}_frequency'
         measurement_df[freq_col] = measurement_df[earfcn_col].apply(
@@ -265,23 +270,70 @@ def add_frequency_colums(measurement_df):
         )
     return measurement_df
 
-def normalize_rsrp(measurement_df):
-    print('Normalizing rsrp values...')
+def normalize_ssi(measurement_df,ssi):
+    print(f'Normalizing {ssi} values...')
     F0 = 1800  #reference frequency in MHz
 
     #the normalization function
-    def normalize_function(rsrp, frequency):
+    def normalize_function(ssi, frequency):
         if frequency is None or pd.isna(frequency): 
             return None
-        return round(rsrp + 20 * np.log10(frequency / F0), 2)
+        elif ssi is None:
+            return None
+        return round(ssi + 20 * np.log10(frequency / F0), 2)
 
-    #apply normalization function and replace original LTE_x_rsrp columns
+    #apply normalization function and replace original LTE_x_{ssi} columns
     for i in range(10):
-        rsrp_col = f'LTE_{i}_rsrp'
-        freq_col = f'LTE_{i}_frequency'
-        
-        measurement_df[rsrp_col] = measurement_df.apply(
-            lambda row: normalize_function(row[rsrp_col], row[freq_col]), axis=1
-        )
+        try:
+            ssi_col = f'LTE_{i}_{ssi}'
+            freq_col = f'LTE_{i}_frequency'
+            
+            measurement_df[ssi_col] = measurement_df.apply(
+                lambda row: normalize_function(row[ssi_col], row[freq_col]), axis=1
+            )
+        except:
+            print("can't normalize")
+            exit()
 
     return measurement_df
+
+def fetch_metadata(output_folder,today):
+
+    print(f'Fetching metadata stats...')
+    query = sql_queries.fetch_metadata()
+    df = pd.read_sql(query, _postgres_connect())
+    df['date'] = [f'{today[:2]}-{today[2:4]}-{today[4:]}']
+    df['lat'],df['lon'] = [0],[0]
+    gdf = gpd.GeoDataFrame(df[['total_rows','unique_appids','date']],geometry=gpd.points_from_xy(df.lat,df.lon),crs="EPSG:4326")
+    os.makedirs(f'{output_folder}/metadata', exist_ok=True)
+    gdf.to_file(f'{output_folder}/metadata/metadata{today}.gpkg')
+    return
+
+def compress_tif(input_folder,output_folder):
+    options = [
+        "COMPRESS=DEFLATE",
+        "TILED=YES",
+        "TILED=YES",
+        "PREDICTOR=2"
+    ]
+
+    input_files = glob.glob(f"{input_folder}/*.tif")
+    print(input_files)
+    
+    for file in input_files:
+        output_file = file.split('.')[0] + 'c.tif'
+
+        print(f"Compressing {file}")
+        c_start = datetime.now()
+
+        dataset = gdal.Open(file, gdal.GA_ReadOnly)
+        driver = gdal.GetDriverByName("GTiff")
+        driver.CreateCopy(output_file, dataset, options=options)
+        
+        c_end = datetime.now()
+        print(f"Compressed {file} -> {output_file} in {c_end - c_start}")
+        delete = False
+        if delete == True:
+            os.remove(file)
+            
+
