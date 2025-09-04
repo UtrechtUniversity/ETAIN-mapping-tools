@@ -7,7 +7,6 @@ import glob
 import os
 import gc
 from datetime import date, datetime
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from osgeo import gdal
 import re
 import time
@@ -26,7 +25,7 @@ def process_country(country, ssi, today, output_folder, cell_size_output):
 
     df = hf.add_frequency_colums(df)
     df = hf.normalize_ssi(df, ssi)
-    df_mw = hf.convert_dBw_to_mW(df, ssi, copy_columns=True, save_csv=False)
+    df_mw = hf.convert_dBm_to_mW(df, ssi, copy_columns=True, save_csv=False)
     split_dfs = hf.split_dataframes(df_mw)
 
     exposure_array, count_array, transform = hf.create_exposure_array(df_mw, split_dfs, cell_size_output)
@@ -35,24 +34,13 @@ def process_country(country, ssi, today, output_folder, cell_size_output):
 
     return (country, len(df), tif_output_path)
 
-def submit_with_retry(executor, func, *args, **kwargs):
-    """Keep retrying until submission and execution succeeds."""
-    while True:
-        try:
-            future = executor.submit(func, *args, **kwargs)
-            return future
-        except MemoryError:
-            print("MemoryError on submission. Waiting before retrying...")
-            time.sleep(10)
-        except Exception as e:
-            print(f"Error on submission: {e}. Retrying...")
-            time.sleep(5)
 
 if __name__ == '__main__':
+    
     starttime = datetime.now()
     today = date.today().strftime("%d%m%Y")
     ssi_values = ['rssi','rsrp']
-    
+    """
 
     cell_size_output = 25
 
@@ -63,7 +51,7 @@ if __name__ == '__main__':
                  'HR','HU','IE','IM',       
                  'IS','IT','JE','LI','LT',
                  'LU','LV','MC','MD','ME',
-                 'MK','MT','NL','NO','PL',
+                 'MK','MT','NL','NO','NY','PL',
                  'PT','RO','RS','SE',
                  'SI','SK','SM','UK','UA',
                  'VA','XK']
@@ -72,63 +60,29 @@ if __name__ == '__main__':
     saved_rasters = []
 
     for ssi in ssi_values:
-        ##PUT BREAK HERE
         output_folder = f"C:/scripts/ETAIN_mapping_tools/data/private/output/{today}/{ssi}"
         os.makedirs(output_folder, exist_ok=True)
-        
-        with ProcessPoolExecutor(max_workers=1) as executor:
-            futures = {
-                submit_with_retry(
-                    executor,
-                    process_country,
+
+        for country in countries:
+                country_code, meas_count, raster_path = process_country(
                     country, ssi, today, output_folder, cell_size_output
-                ): country
-                for country in countries
-            }
-
-            for future in as_completed(futures):
-                country = futures[future]
-                while True:  # Retry loop around result fetching
-                    try:
-                        country_code, meas_count, raster_path = future.result()
-                        if meas_count > 0:
-                            meas_per_country[country_code] = meas_count
-                            saved_rasters.append(raster_path)
-                            print(f'{country_code} processed: {meas_count} measurements')
-                        else:
-                            print(f'{country_code} skipped: no measurements found')
-                        break  # success, break retry loop
-                    except MemoryError:
-                        del futures[future]
-                        del future
-                        print(f'MemoryError while processing {country}. Retrying after delay...')
-                        time.sleep(10)
-                        future = submit_with_retry(
-                            executor,
-                            process_country,
-                            country, ssi, today, output_folder, cell_size_output
-                        )
-                    except Exception as e:
-                        print(f'Error processing {country}: {e}. Retrying...')
-                        time.sleep(5)
-                        future = submit_with_retry(
-                            executor,
-                            process_country,
-                            country, ssi, today, output_folder, cell_size_output
-                        )
-
-        
-
-        print(f"\nprocessing time {ssi}: {(datetime.now() - starttime).total_seconds():.2f} seconds.")
+                )
+                if meas_count > 0:
+                    meas_per_country[country_code] = meas_count
+                    saved_rasters.append(raster_path)
+                    print(f'{country_code} processed: {meas_count} measurements')
+                else:
+                    print(f'{country_code} skipped: no measurements found')
 
 
+    """
     #MERGE RSSI AND RSRP FILES
     folder_path = f"C:/scripts/ETAIN_mapping_tools/data/private/output/{today}"
     rssi_folder = f"{folder_path}/rssi"
     rsrp_folder = f"{folder_path}/rsrp"
-    output_folder = f"{folder_path}/merged"
+    output_folder = f"{folder_path}/lte_eu_mosaic"
     os.makedirs(output_folder, exist_ok=True)
-
+    """
     def get_country_code(filename):
         match = re.search(r'_([A-Z]{2})_', filename)
         return match.group(1) if match else None
@@ -159,17 +113,14 @@ if __name__ == '__main__':
         os.remove(rssi_path)
         os.remove(rsrp_path)
 
-
-
-
-
-
+    """
     #create mosaic shp with gdal subprocess
     tif_files = glob.glob(f"{output_folder}/*.tif")
     os.environ['GTIFF_SRS_SOURCE'] = 'EPSG'
-    command = ["gdaltindex","-nodata","nan", f"{output_folder}/mosaic.shp"] + tif_files
+    command = ["gdaltindex","-nodata","nan", f"{output_folder}/lte_eu_mosaic.shp"] + tif_files
     subprocess.run(command)
     result = subprocess.run(command, capture_output=True, text=True)
 
 
     hf.fetch_metadata(folder_path,today)
+

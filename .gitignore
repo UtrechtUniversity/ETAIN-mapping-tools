@@ -2,6 +2,7 @@ venv
 data/private
 src/db_secrets.py
 note_to_self.txt
+logfile.txt
 .env
 
 __pycache__

@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 import urllib.parse
 from datetime import datetime,date,timedelta
 import os
+import glob
 
 import db_secrets
 
@@ -96,12 +97,14 @@ for country in countries:
 
 ###TODO: MULTITHREADING BOTH GENERATION AND MERGING
 #write to gpkg
-output_gpkg = f"{output_folder}/count_merged{today}.gpkg"
+output_gpkg = f"{output_folder}/count_merged.gpkg"
 layer_name = "count"
 
 gdfs = []
 
 for file in os.listdir(output_folder):
+    if "metadata" in file:
+        continue
     if file.endswith(".gpkg"):
         print(file)
         file_path = os.path.join(output_folder, file)
@@ -120,5 +123,12 @@ if gdfs:
 
 else:
     print("No valid data found to merge.")
-print('Script completed successfully.')
 
+# Delete .gpkg files that don't contain "merged" or "metadata"
+for file in glob.glob(os.path.join(output_folder, "*.gpkg")):
+    name = os.path.basename(file)
+    if "merged" not in name and "metadata" not in name:
+        os.remove(file)
+        print(f"Deleted: {file}")
+
+print('script completed')

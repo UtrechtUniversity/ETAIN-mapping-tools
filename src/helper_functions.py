@@ -60,20 +60,20 @@ def fetch_country_data(country_code,ssi):
     df = pd.read_sql(query, _postgres_connect())
     return df
 
-def convert_dBw_to_mW(df,ssi, column_list=None,copy_columns=False,save_csv=False, ):
+def convert_dBm_to_mW(df,ssi, column_list=None,copy_columns=False,save_csv=False, ):
     """
-    Function to convert dBw to mW and sum all LTE cells together
+    Function to convert dBm to mW and sum all LTE cells together
     """
-    print('Converting dBw to mW...')
+    print('Converting dBm to mW...')
     if column_list == None:
         column_list=[f'LTE_0_{ssi}',f'LTE_1_{ssi}',f'LTE_2_{ssi}',f'LTE_3_{ssi}',f'LTE_4_{ssi}',
                     f'LTE_5_{ssi}',f'LTE_6_{ssi}',f'LTE_7_{ssi}',f'LTE_8_{ssi}',f'LTE_9_{ssi}']
     if copy_columns == True:
         for col in column_list:
-            df[f"{col}_dBw"] = df[col].copy()
+            df[f"{col}_dBm"] = df[col].copy()
 
     for column in column_list:
-        df[column] =  10** (df[column].astype(float)/10) * 1000
+        df[column] =  10** (df[column].astype(float)/10)
     
     df=df.fillna(0)
     
@@ -166,7 +166,8 @@ def create_exposure_array(df, split_dfs,cell_size):
 
     #############
     np.where(sum_array == 0, np.nan,sum_array) #convert 0 back to nan
-    sum_array = 10 * np.log10(sum_array) - 30 #convert mW to dBw
+    sum_array = 10 * np.log10(sum_array)
+
 
     sum_array = np.rot90(sum_array, k=1) 
     count_array = np.rot90(count_array, k=1)
@@ -305,8 +306,7 @@ def fetch_metadata(output_folder,today):
     df['date'] = [f'{today[:2]}-{today[2:4]}-{today[4:]}']
     df['lat'],df['lon'] = [0],[0]
     gdf = gpd.GeoDataFrame(df[['total_rows','unique_appids','date']],geometry=gpd.points_from_xy(df.lat,df.lon),crs="EPSG:4326")
-    os.makedirs(f'{output_folder}/metadata', exist_ok=True)
-    gdf.to_file(f'{output_folder}/metadata/metadata{today}.gpkg')
+    gdf.to_file(f'{output_folder}/metadata.gpkg')
     return
 
 def compress_tif(input_folder,output_folder):
